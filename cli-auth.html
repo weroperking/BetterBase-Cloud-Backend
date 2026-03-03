@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>BetterBase Login</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      padding: 40px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      width: 100%;
+      max-width: 400px;
+      text-align: center;
+    }
+    h2 { margin-bottom: 8px; color: #333; }
+    .subtitle { color: #666; margin-bottom: 24px; font-size: 14px; }
+    #status { margin-top: 20px; padding: 12px; border-radius: 4px; }
+    #status.pending { background: #fff3cd; color: #856404; }
+    #status.success { background: #d4edda; color: #155724; }
+    #status.error { background: #f8d7da; color: #721c24; }
+    .hidden { display: none; }
+    button {
+      background: #00c084;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      margin: 4px;
+    }
+    button:hover { background: #00a871; }
+    input {
+      width: 100%;
+      padding: 12px;
+      margin: 8px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 16px;
+    }
+    #auth-section { margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>BetterBase Login</h2>
+    <p class="subtitle">Authenticate your CLI to continue</p>
+    
+    <div id="code-display" class="hidden">
+      <p>Your device code:</p>
+      <h3 id="device-code" style="font-size: 24px; letter-spacing: 2px; margin: 12px 0;"></h3>
+    </div>
+    
+    <div id="auth-section">
+      <div id="email-section">
+        <input type="email" id="email" placeholder="Enter your email" />
+        <input type="password" id="password" placeholder="Enter your password" />
+        <button id="sign-in-btn">Sign In</button>
+      </div>
+      
+      <div id="magic-link-section" style="margin-top: 16px;">
+        <p style="margin-bottom: 8px; color: #666;">or</p>
+        <input type="email" id="magic-email" placeholder="Enter your email" />
+        <button id="magic-link-btn">Send Magic Link</button>
+      </div>
+    </div>
+    
+    <div id="status"></div>
+  </div>
+
+  <script>
+    // Get code from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    
+    if (!code) {
+      document.getElementById('status').textContent = 'Error: No device code provided in URL';
+      document.getElementById('status').className = 'error';
+    } else {
+      document.getElementById('device-code').textContent = code;
+      document.getElementById('code-display').classList.remove('hidden');
+    }
+    
+    // Supabase configuration - UPDATE THESE VALUES FOR YOUR PROJECT
+    const SUPABASE_URL = 'https://gzmqjmgomlkpwntbivox.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6bXFqbWdvbWxrcHdudGJpdm94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0OTk1NzgsImV4cCI6MjA4ODA3NTU3OH0.1ijVEm4595ZNMjffe6M8YQBZgUPMDK92KgUQVpldCgE';
+    
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    
+    function showStatus(message, type) {
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = message;
+      statusEl.className = type;
+    }
+    
+    async function completeAuth(token, email, userId) {
+      try {
+        const res = await fetch(SUPABASE_URL + '/functions/v1/cli-auth-init', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token
+          },
+          body: JSON.stringify({ code, token, email, userId })
+        });
+        
+        if (res.ok) {
+          showStatus('✓ Authenticated. You can close this window.', 'success');
+        } else {
+          const data = await res.json();
+          showStatus('Error: ' + (data.error || 'Authentication failed'), 'error');
+        }
+      } catch (err) {
+        showStatus('Error: ' + err.message, 'error');
+      }
+    }
+    
+    // Handle sign in
+    document.getElementById('sign-in-btn').addEventListener('click', async () => {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      
+      if (!email || !password) {
+        showStatus('Please enter email and password', 'error');
+        return;
+      }
+      
+      showStatus('Signing in...', 'pending');
+      
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+      
+      if (error) {
+        showStatus('Error: ' + error.message, 'error');
+      } else if (data.session) {
+        completeAuth(data.session.access_token, data.user.email, data.user.id);
+      }
+    });
+    
+    // Handle magic link
+    document.getElementById('magic-link-btn').addEventListener('click', async () => {
+      const email = document.getElementById('magic-email').value;
+      
+      if (!email) {
+        showStatus('Please enter an email', 'error');
+        return;
+      }
+      
+      showStatus('Sending magic link...', 'pending');
+      
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: window.location.href
+        }
+      });
+      
+      if (error) {
+        showStatus('Error: ' + error.message, 'error');
+      } else {
+        showStatus('Magic link sent! Check your email.', 'success');
+      }
+    });
+    
+    // Listen for auth changes
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        completeAuth(session.access_token, session.user.email, session.user.id);
+      }
+    });
+  </script>
+</body>
+</html>
